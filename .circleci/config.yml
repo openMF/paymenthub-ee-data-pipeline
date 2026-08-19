@@ -1,0 +1,226 @@
+version: 2.1
+
+# CircleCI config for paymenthub-ee-data-pipeline.
+#
+# This repository holds four components, so it does NOT use the single-image
+# template the other PHEE Java repos share. That template builds one image from
+# one Dockerfile at the repository root; here there are three images plus a jar:
+#
+#   importer-es     Docker image  Kafka -> Elasticsearch
+#   importer-rdbms  Docker image  Kafka -> MySQL, plus a health endpoint
+#   zeebe-ops       Docker image  operations REST API over Zeebe
+#   exporter        jar only      Zeebe broker plugin, loaded by the broker from
+#                                disk and run inside its JVM, so no image
+#
+# Each image is built from <module>/Dockerfile with the repository root as the
+# build context, and published as <org>/paymenthub-ee-<module>, so the three keep
+# separate tags on Docker Hub.
+#
+# Publishing the exporter jar to the Mifos JFrog Artifactory is done by
+# `./gradlew :exporter:publish`, which needs MIFOS_ARTIFACTORY_USER /
+# MIFOS_ARTIFACTORY_TOKEN. Once those are available as a CircleCI context, a
+# publish job can be added here.
+
+executors:
+  java-executor:
+    # cimg/openjdk is built on cimg/base, which includes the Docker CLI.
+    # The executor JDK only compiles the jars — the image base is set
+    # independently in each module's Dockerfile.
+    docker:
+      - image: cimg/openjdk:21.0.6
+    environment:
+      JVM_OPTS: -Xmx512m
+      TERM: dumb
+
+commands:
+  # The Gradle dependency graph here is large (Spring Boot + Elasticsearch 7 +
+  # the AWS SDK), so downloading it on every job is the single slowest step.
+  # The cache key follows the build scripts: any change to them re-resolves.
+  restore-gradle-cache:
+    steps:
+      - restore_cache:
+          keys:
+            - gradle-v1-{{ checksum "gradle/wrapper/gradle-wrapper.properties" }}-{{ checksum "settings.gradle" }}-{{ checksum "gradle.properties" }}-{{ checksum "exporter/build.gradle" }}-{{ checksum "importer-es/build.gradle" }}-{{ checksum "importer-rdbms/build.gradle" }}-{{ checksum "zeebe-ops/build.gradle" }}
+            - gradle-v1-{{ checksum "gradle/wrapper/gradle-wrapper.properties" }}-
+
+  common-setup:
+    steps:
+      - checkout
+      # The jars built once by build_all; see persist_to_workspace there.
+      - attach_workspace:
+          at: .
+      - setup_remote_docker:
+          version: 20.10.24
+      - run:
+          name: Set lowercase image name vars
+          # tr for POSIX compatibility; Bash 4+ alternative: ${VAR,,}
+          command: |
+            echo "export DOCKER_ORG_LOWER=$(echo $CIRCLE_PROJECT_USERNAME | tr '[:upper:]' '[:lower:]')" >> $BASH_ENV
+      - run:
+          name: Install Docker Buildx
+          command: |
+            BUILDX_VERSION="v0.14.1"
+            if docker buildx version 2>/dev/null | grep -q "$BUILDX_VERSION"; then
+              echo "Docker Buildx $BUILDX_VERSION already present"
+            else
+              mkdir -vp ~/.docker/cli-plugins/
+              curl --silent -L \
+                "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-amd64" \
+                -o ~/.docker/cli-plugins/docker-buildx
+              chmod a+x ~/.docker/cli-plugins/docker-buildx
+              docker buildx version
+            fi
+            docker context create buildcontext 2>/dev/null || true
+            docker buildx create --name multiarch --driver docker-container --use buildcontext 2>/dev/null \
+              || docker buildx use multiarch
+            docker buildx inspect --bootstrap
+
+  # One parameterised body instead of three near-identical jobs. MODULE is both
+  # the Gradle project name and the image name suffix. No Gradle here: the jar
+  # comes from build_all through the workspace.
+  build-and-push-module-image:
+    parameters:
+      module:
+        type: string
+      tag:
+        type: string
+    steps:
+      - run:
+          name: Build and push multi-arch image (linux/amd64 + linux/arm64)
+          command: |
+            echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            docker buildx build \
+              --push \
+              --platform linux/amd64,linux/arm64 \
+              -f << parameters.module >>/Dockerfile \
+              -t "$DOCKER_ORG_LOWER/paymenthub-ee-<< parameters.module >>:<< parameters.tag >>" \
+              .
+
+jobs:
+  # The exporter has no image, so it gets a plain build job. It also compiles the
+  # whole repository, which is the cheapest way to keep every module honest on
+  # every commit.
+  build_all:
+    executor: java-executor
+    steps:
+      - checkout
+      - restore-gradle-cache
+      - run:
+          name: Build every module
+          command: ./gradlew clean build
+      # org.mifos artifacts are SNAPSHOTs that move under us, so they are dropped
+      # before saving: everything else is released and safe to keep. Without this
+      # a cached BOM would be reused for up to Gradle's 24h changing-module TTL.
+      - run:
+          name: Drop SNAPSHOT artifacts from the cache
+          command: rm -rf ~/.gradle/caches/modules-2/files-2.1/org.mifos
+      - save_cache:
+          key: gradle-v1-{{ checksum "gradle/wrapper/gradle-wrapper.properties" }}-{{ checksum "settings.gradle" }}-{{ checksum "gradle.properties" }}-{{ checksum "exporter/build.gradle" }}-{{ checksum "importer-es/build.gradle" }}-{{ checksum "importer-rdbms/build.gradle" }}-{{ checksum "zeebe-ops/build.gradle" }}
+          paths:
+            - ~/.gradle/caches
+            - ~/.gradle/wrapper
+      - store_artifacts:
+          path: exporter/build/libs
+      - store_test_results:
+          path: importer-rdbms/build/test-results/test
+      - store_test_results:
+          path: zeebe-ops/build/test-results/test
+      # The Dockerfiles only COPY a prebuilt jar, so the image jobs do not need
+      # Gradle at all: they attach these three jars and go straight to buildx.
+      - persist_to_workspace:
+          root: .
+          paths:
+            - importer-es/build/libs/app.jar
+            - importer-rdbms/build/libs/app.jar
+            - zeebe-ops/build/libs/app.jar
+
+  build_and_push_branch_images:
+    executor: java-executor
+    steps:
+      - common-setup
+      - run:
+          name: Sanitize branch name and set commit tag
+          command: |
+            echo "export SANITIZED_BRANCH=$(echo $CIRCLE_BRANCH | sed 's/[^a-zA-Z0-9.-]/-/g' | tr '[:upper:]' '[:lower:]')" >> $BASH_ENV
+            echo "export SHORT_SHA=$(echo $CIRCLE_SHA1 | cut -c1-7)" >> $BASH_ENV
+      - build-and-push-module-image:
+          module: importer-es
+          tag: ${SANITIZED_BRANCH}-${SHORT_SHA}
+      - build-and-push-module-image:
+          module: importer-rdbms
+          tag: ${SANITIZED_BRANCH}-${SHORT_SHA}
+      - build-and-push-module-image:
+          module: zeebe-ops
+          tag: ${SANITIZED_BRANCH}-${SHORT_SHA}
+
+  build_and_push_latest_images:
+    executor: java-executor
+    steps:
+      - common-setup
+      - build-and-push-module-image:
+          module: importer-es
+          tag: latest
+      - build-and-push-module-image:
+          module: importer-rdbms
+          tag: latest
+      - build-and-push-module-image:
+          module: zeebe-ops
+          tag: latest
+
+  build_and_push_tag_images:
+    executor: java-executor
+    steps:
+      - common-setup
+      - build-and-push-module-image:
+          module: importer-es
+          tag: $CIRCLE_TAG
+      - build-and-push-module-image:
+          module: importer-rdbms
+          tag: $CIRCLE_TAG
+      - build-and-push-module-image:
+          module: zeebe-ops
+          tag: $CIRCLE_TAG
+
+workflows:
+  version: 2
+  build-pipeline:
+    jobs:
+      - build_all:
+          filters:
+            tags:
+              only: /^v\d+\.\d+\.\d+$/
+      # Release tags
+      - build_and_push_tag_images:
+          requires:
+            - build_all
+          filters:
+            tags:
+              only: /^v\d+\.\d+\.\d+$/
+            branches:
+              ignore: /.*/
+          context:
+            - DOCKER
+      # Any branch commit (except the config-propagator update branches)
+      - build_and_push_branch_images:
+          requires:
+            - build_all
+          filters:
+            tags:
+              ignore: /.*/
+            branches:
+              ignore: /^ci\/mt-.*/
+          context:
+            - DOCKER
+      # 'latest' only on main/master, after the branch images succeed
+      - build_and_push_latest_images:
+          requires:
+            - build_and_push_branch_images
+          filters:
+            tags:
+              ignore: /.*/
+            branches:
+              only:
+                - main
+                - master
+          context:
+            - DOCKER

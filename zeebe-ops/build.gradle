@@ -1,0 +1,87 @@
+// NOTE: no 'io.spring.dependency-management' plugin, on purpose — see the same
+// note in importer-es/build.gradle. It overrode the BOM's elasticsearch-rest-client
+// 7.17.28 with Spring Boot's 8.15.5, under an ES7 high-level client. Do not add
+// it back.
+plugins {
+    id 'org.springframework.boot' version '3.4.4'
+    id 'java'
+    id 'checkstyle'
+}
+
+group = 'org.mifos'
+sourceCompatibility = JavaVersion.VERSION_21
+targetCompatibility = JavaVersion.VERSION_21
+
+repositories {
+    mavenCentral()
+    maven {
+        url = uri('https://repo.maven.apache.org/maven2/')
+    }
+    maven {
+        url = uri('https://mifos.jfrog.io/artifactory/phee-gradle-local')
+    }
+    maven {
+        url = uri('https://mifos.jfrog.io/artifactory/mifosx-gradle-local')
+    }
+
+}
+
+checkstyle {
+    toolVersion = '10.9.3'
+    configDirectory = file("${projectDir}/config/checkstyle")
+    configFile = file("${projectDir}/config/checkstyle/checkstyle.xml")
+    ignoreFailures = false
+    maxWarnings = 0
+}
+
+configurations {
+    checkstyle
+}
+
+dependencies {
+    checkstyle 'com.puppycrawl.tools:checkstyle:10.9.3'
+    checkstyle 'com.github.sevntu-checkstyle:sevntu-checks:1.44.1'
+}
+
+dependencies {
+    // The PH-EE BOM pins Spring Boot 3.4, Camel 4, Zeebe 8, Jakarta EE 10
+    // and every other shared library version. Do NOT hardcode managed versions.
+    // This is a deployable application (leaf node), so use enforcedPlatform().
+    implementation enforcedPlatform("org.mifos:paymenthub-ee-bom:${bomVersion}")
+
+    // former ph-ee-connector-common, now the core module of paymenthub-ee-core
+    implementation "org.mifos:paymenthub-ee-core:${coreVersion}"
+
+    implementation 'org.apache.camel.springboot:camel-spring-boot-starter'
+    implementation 'org.apache.camel:camel-bean-validator'
+    implementation 'org.apache.camel:camel-undertow'
+    implementation 'org.apache.camel.springboot:camel-jackson-starter'
+
+    implementation 'io.camunda:zeebe-client-java'
+
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
+
+    implementation 'org.json:json'
+    // The code uses the legacy ES7 RestHighLevelClient directly (own @Bean, no
+    // Spring Data repositories), so the spring-data-elasticsearch starter was
+    // replaced with the explicit legacy client, pinned via the BOM.
+    implementation 'org.elasticsearch.client:elasticsearch-rest-high-level-client'
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    // javax.mail:mail 1.4.7 -> Jakarta Mail (Eclipse Angus implementation)
+    implementation 'org.eclipse.angus:angus-mail'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+
+    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+// Deterministic boot jar name so the Dockerfile can copy exactly one file
+// (avoids the *.jar glob picking up the plain -plain.jar when `build` runs).
+bootJar {
+    archiveFileName = 'app.jar'
+}

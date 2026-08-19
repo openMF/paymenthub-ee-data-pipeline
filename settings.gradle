@@ -1,0 +1,30 @@
+/*
+ * Copyright 2026 The Mifos Initiative.
+ * Licensed under the Mozilla Public License 2.0.
+ */
+
+// Published coordinates (group, artifact names, version) are NOT hardcoded in the
+// build scripts: they are read from gradle.properties so they can be renamed
+// without touching any module.
+rootProject.name = 'paymenthub-ee-data-pipeline'
+
+// exporter — the Kafka exporter plugin loaded by the Zeebe broker
+//            (former ph-ee-exporter). It is a plain fat jar, not a Spring Boot
+//            application: the broker loads it from disk and runs it inside its
+//            own JVM, so it ships no Docker image of its own.
+include 'exporter'
+
+// The three Spring Boot services. Unlike the exporter each one ships its own
+// Docker image, built from the Dockerfile in its module directory with the
+// repository root as the build context (see .circleci/config.yml).
+//
+// importer-es     — reads the Zeebe records off Kafka and indexes them in
+//                   Elasticsearch (former ph-ee-importer-es).
+// importer-rdbms  — the same records into MySQL, plus a health endpoint
+//                   (former ph-ee-importer-rdbms).
+// zeebe-ops       — the operations REST API over Zeebe: start and cancel
+//                   workflow instances, list deployed BPMN (former
+//                   ph-ee-zeebe-ops).
+include 'importer-es'
+include 'importer-rdbms'
+include 'zeebe-ops'
