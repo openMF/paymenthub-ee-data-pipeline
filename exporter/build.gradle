@@ -1,0 +1,116 @@
+/*
+ * Copyright 2026 The Mifos Initiative.
+ * Licensed under the Mozilla Public License 2.0.
+ */
+
+plugins {
+    id 'java'
+    id 'maven-publish'
+}
+
+// group and version come from the root gradle.properties.
+// The published artifactId is the 'exporterArtifact' property (also gradle.properties).
+description = 'Zeebe exporter plugin that streams broker records to Kafka. ' +
+        'Loaded by the Zeebe broker from disk, it runs inside the broker JVM.'
+
+repositories {
+    mavenCentral()
+    // The PH-EE BOM (org.mifos:paymenthub-ee-bom) is published here.
+    maven { url = uri('https://mifos.jfrog.io/artifactory/phee-gradle-local') }
+    // Camunda / Zeebe artifacts are not all on Maven Central.
+    maven { url = uri('https://artifacts.camunda.com/artifactory/zeebe-io/') }
+}
+
+java {
+    // The exporter runs inside the Zeebe broker JVM, so its bytecode level is
+    // dictated by the broker image: zeebe 8.4 runs on Java 21 (zeebe 8.2 ran on
+    // Java 17). Keep this in step with the broker version below.
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+dependencies {
+    // The PH-EE BOM pins Zeebe 8, Kafka and every other shared library version.
+    // Do NOT hardcode managed versions. This module produces a self-contained
+    // jar (leaf node), so use enforcedPlatform().
+    implementation enforcedPlatform("org.mifos:paymenthub-ee-bom:${bomVersion}")
+
+    // Bundled into the fat jar: the broker does not ship a Kafka client.
+    // slf4j is excluded on purpose — the broker provides its own binding, and a
+    // second copy on the classpath would clash with it.
+    implementation('org.apache.kafka:kafka-clients') {
+        exclude group: 'org.slf4j'
+    }
+
+    // Provided by the Zeebe broker at runtime, so compile-time only:
+    //  - zeebe-exporter-api  the Exporter / Context / Controller interfaces
+    //  - zeebe-protocol      the Record types the broker hands to export()
+    //  - simpleclient        Prometheus client, used by KafkaExporterMetrics
+    //                        (the broker registers its own metrics with it)
+    //  - slf4j-api           the logger the broker injects via Context.getLogger()
+    compileOnly 'io.camunda:zeebe-exporter-api'
+    compileOnly 'io.camunda:zeebe-protocol'
+    compileOnly 'io.prometheus:simpleclient'
+    compileOnly 'org.slf4j:slf4j-api'
+}
+
+// The broker loads one jar file from disk (ZEEBE_BROKER_EXPORTERS_KAFKA_JARPATH),
+// so the published artifact has to carry its own dependencies. This keeps the
+// behaviour of the old build: the main jar IS the fat jar.
+jar {
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    // Dependency jars carry their own signatures and module descriptors; keeping
+    // them would make the merged jar unverifiable.
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/versions/**/module-info.class', 'module-info.class'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from components.java
+            artifactId = exporterArtifact
+
+            pom {
+                name = exporterArtifact
+                description = project.description
+                url = 'https://github.com/openMF/paymenthub-ee-data-pipeline'
+
+                licenses {
+                    license {
+                        name = 'Mozilla Public License 2.0'
+                        url = 'https://www.mozilla.org/en-US/MPL/2.0/'
+                    }
+                }
+
+                scm {
+                    connection = 'scm:git:git://github.com/openMF/paymenthub-ee-data-pipeline.git'
+                    developerConnection = 'scm:git:ssh://github.com/openMF/paymenthub-ee-data-pipeline.git'
+                    url = 'https://github.com/openMF/paymenthub-ee-data-pipeline'
+                }
+            }
+        }
+    }
+
+    repositories {
+        // Mifos JFrog Artifactory. Credentials are supplied at publish time via
+        // gradle properties / env vars (never stored in this repo).
+        maven {
+            name = 'MifosArtifactory'
+            def isSnapshot = version.toString().endsWith('SNAPSHOT')
+            def repoKey = isSnapshot ? 'phee-gradle-local' : 'oss-release-local'
+            url = uri("https://mifos.jfrog.io/artifactory/${repoKey}")
+            credentials {
+                username = findProperty('artifactory.user') ?: System.getenv('MIFOS_ARTIFACTORY_USER')
+                password = findProperty('artifactory.key') ?: System.getenv('MIFOS_ARTIFACTORY_TOKEN')
+            }
+        }
+    }
+}
