@@ -9,7 +9,7 @@ importer:
   kafka:
     topic: "zeebe-export"
   elasticsearch:
-    url: "https://ph-ee-elasticsearch:9200/"
+    url: "http://infra-elasticsearch.infra.svc.cluster.local:9200/"
     bulk-size: 20
     index-prefix: "zeebe-record"
 

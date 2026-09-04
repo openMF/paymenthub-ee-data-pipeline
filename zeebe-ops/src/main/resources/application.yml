@@ -32,7 +32,7 @@ logging:
     root: INFO
 
 elasticsearch:
-  url: "https://ph-ee-elasticsearch:9200/"
+  url: "http://infra-elasticsearch.infra.svc.cluster.local:9200/"
   security:
     enabled: false
   sslVerification: false
