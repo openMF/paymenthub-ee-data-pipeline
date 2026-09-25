@@ -72,7 +72,8 @@ public class OperationsRouteBuilder extends ErrorHandlerRouteBuilder {
     private void removeLastLine(String bpmnFileName) throws IOException {
         String filePath = "upload/" + bpmnFileName;
         // try-with-resources: the file used to stay open whenever the scan below threw,
-        // which it does on a file with no newline in it at all
+        // which it did on a file with no newline in it at all. That case is now logged
+        // and the file is left as it is, instead of failing the upload.
         try (RandomAccessFile f = new RandomAccessFile(filePath, "rw")) {
             long length = f.length() - 1;
             byte b;

@@ -17,9 +17,8 @@ import org.springframework.core.env.SystemEnvironmentPropertySource;
  * These bind from the environment of the running gazelle deployment, with the variable names written
  * exactly as the CR writes them. The Elasticsearch username and password come from a secret there;
  * they are set empty here to show that an empty string still binds. ELASTICSEARCH_SSLVERIFICATION is
- * the one to watch: the application.yml key had to be
- * renamed from sslVerification to ssl-verification, and this fixes that the variable the deployment
- * sets still reaches it.
+ * the one to watch: the application.yml key had to be renamed from sslVerification to
+ * ssl-verification, and this fixes that the variable the deployment sets still reaches it.
  */
 class DeploymentEnvironmentBindingTest {
 
