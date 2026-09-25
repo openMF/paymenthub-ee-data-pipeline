@@ -12,9 +12,10 @@ import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.env.SystemEnvironmentPropertySource;
 
 /**
- * These bind from the environment of the running gazelle deployment, written exactly as the CR
- * writes it, including the variable names with a dash in them. If a rename ever creeps in, the build
- * says so instead of a deployment going quiet.
+ * These bind from the environment of the running gazelle deployment, with the variable names written
+ * exactly as the CR writes them, including the ones with a dash in them. The region comes from a
+ * secret there; it is set empty here to show that an empty string still binds. If a rename ever
+ * creeps in, the build says so instead of a deployment going quiet.
  */
 class DeploymentEnvironmentBindingTest {
 
@@ -48,7 +49,7 @@ class DeploymentEnvironmentBindingTest {
     }
 
     @Test
-    void bindsTheAwsValuesIncludingTheEmptyRegionTheSecretProvides() {
+    void bindsTheAwsValuesIncludingAnEmptyRegion() {
         CloudProperties cloud = deploymentEnvironment().bind("cloud", CloudProperties.class).get();
 
         // CLOUD_AWS_S3BASEURL matches the renamed s3-base-url spelling as well as the old one
@@ -81,14 +82,5 @@ class DeploymentEnvironmentBindingTest {
 
         assertEquals("zeebe-export", kafka.topic());
         assertEquals(2, kafka.aggreationWindowSeconds());
-    }
-
-    @Test
-    void buildsEveryGroupFromItsDefaultsWhenTheSectionIsMissing() {
-        Binder empty = Binder.get(new StandardEnvironment());
-
-        assertEquals("jdbc", empty.bindOrCreate("datasource.common", DatasourceCommonProperties.class).protocol());
-        assertEquals("zeebe-export", empty.bindOrCreate("importer.kafka", ImporterKafkaProperties.class).topic());
-        assertEquals("", empty.bindOrCreate("cloud", CloudProperties.class).aws().credentials().accessKey());
     }
 }

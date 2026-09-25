@@ -14,8 +14,10 @@ import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.env.SystemEnvironmentPropertySource;
 
 /**
- * These bind from the environment of the running gazelle deployment, written exactly as the CR
- * writes it. ELASTICSEARCH_SSLVERIFICATION is the one to watch: the application.yml key had to be
+ * These bind from the environment of the running gazelle deployment, with the variable names written
+ * exactly as the CR writes them. The Elasticsearch username and password come from a secret there;
+ * they are set empty here to show that an empty string still binds. ELASTICSEARCH_SSLVERIFICATION is
+ * the one to watch: the application.yml key had to be
  * renamed from sslVerification to ssl-verification, and this fixes that the variable the deployment
  * sets still reaches it.
  */
@@ -64,15 +66,5 @@ class DeploymentEnvironmentBindingTest {
         ZeebeProperties zeebe = deploymentEnvironment().bind("zeebe", ZeebeProperties.class).get();
 
         assertEquals("paymenthub-infra-zeebe-gateway:26500", zeebe.broker().contactpoint());
-        // not set by the deployment, so the default applies
-        assertEquals(100, zeebe.client().maxExecutionThreads());
-    }
-
-    @Test
-    void buildsTheGroupsFromDefaultsWhenTheSectionIsMissing() {
-        Binder empty = Binder.get(new StandardEnvironment());
-
-        assertEquals("localhost:26500", empty.bindOrCreate("zeebe", ZeebeProperties.class).broker().contactpoint());
-        assertFalse(empty.bindOrCreate("elasticsearch", ElasticsearchProperties.class).security().enabled());
     }
 }

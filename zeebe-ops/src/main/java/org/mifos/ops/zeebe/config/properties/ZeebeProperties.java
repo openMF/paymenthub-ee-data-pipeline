@@ -1,7 +1,9 @@
 package org.mifos.ops.zeebe.config.properties;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.validation.annotation.Validated;
 
 /**
  * The Zeebe gateway this service talks to. The deployment sets ZEEBE_BROKER_CONTACTPOINT.
@@ -12,10 +14,11 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * in this module reads it.
  * </p>
  */
+@Validated
 @ConfigurationProperties(prefix = "zeebe")
-public record ZeebeProperties(@DefaultValue Broker broker, @DefaultValue Client client) {
+public record ZeebeProperties(@NotNull @Valid Broker broker, @NotNull @Valid Client client) {
 
-    public record Broker(@DefaultValue("localhost:26500") String contactpoint) {}
+    public record Broker(@NotNull String contactpoint) {}
 
-    public record Client(@DefaultValue("100") int maxExecutionThreads) {}
+    public record Client(@NotNull Integer maxExecutionThreads) {}
 }

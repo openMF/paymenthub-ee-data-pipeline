@@ -1,7 +1,8 @@
 package hu.dpc.phee.operator.config.properties;
 
+import jakarta.validation.constraints.NotNull;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.validation.annotation.Validated;
 
 /**
  * The JDBC pieces every tenant datasource is built from. The per-tenant host, schema and credentials
@@ -13,7 +14,6 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * matches it to driverclassName, and DeploymentEnvironmentBindingTest pins that down.
  * </p>
  */
+@Validated
 @ConfigurationProperties(prefix = "datasource.common")
-public record DatasourceCommonProperties(@DefaultValue("jdbc") String protocol,
-        @DefaultValue("mysql") String subprotocol,
-        @DefaultValue("com.mysql.cj.jdbc.Driver") String driverclassName) {}
+public record DatasourceCommonProperties(@NotNull String protocol, @NotNull String subprotocol, @NotNull String driverclassName) {}

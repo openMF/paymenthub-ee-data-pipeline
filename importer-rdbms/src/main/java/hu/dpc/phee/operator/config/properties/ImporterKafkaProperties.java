@@ -1,7 +1,8 @@
 package hu.dpc.phee.operator.config.properties;
 
+import jakarta.validation.constraints.NotNull;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.boot.context.properties.bind.DefaultValue;
+import org.springframework.validation.annotation.Validated;
 
 /**
  * Which topic the importer reads and how wide the aggregation window is.
@@ -12,6 +13,6 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * property a deployment may set, so it is left exactly as it is.
  * </p>
  */
+@Validated
 @ConfigurationProperties(prefix = "importer.kafka")
-public record ImporterKafkaProperties(@DefaultValue("zeebe-export") String topic,
-        @DefaultValue("2") int aggreationWindowSeconds) {}
+public record ImporterKafkaProperties(@NotNull String topic, @NotNull Integer aggreationWindowSeconds) {}
