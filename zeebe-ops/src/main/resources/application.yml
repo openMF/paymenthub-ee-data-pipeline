@@ -35,7 +35,10 @@ elasticsearch:
   url: "http://infra-elasticsearch.infra.svc.cluster.local:9200/"
   security:
     enabled: false
-  sslVerification: false
+  # was sslVerification: a capital letter in the middle is not a valid
+  # configuration property name, so the binder rejects it.
+  # ELASTICSEARCH_SSLVERIFICATION, which the deployment sets, matches this too.
+  ssl-verification: false
   username: "elastic"
   password: "spmepassword"
 

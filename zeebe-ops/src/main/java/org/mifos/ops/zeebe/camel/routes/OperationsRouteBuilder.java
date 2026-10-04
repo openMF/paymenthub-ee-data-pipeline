@@ -13,13 +13,13 @@ import io.camunda.zeebe.model.bpmn.Bpmn;
 import io.camunda.zeebe.model.bpmn.BpmnModelInstance;
 import jakarta.activation.DataHandler;
 import jakarta.mail.internet.MimeBodyPart;
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -64,9 +64,6 @@ public class OperationsRouteBuilder extends ErrorHandlerRouteBuilder {
     ZeebeOpsApplication zeebeOpsApplication;
 
 
-    @Value("${elasticsearch.security.enabled}")
-    private Boolean securityEnabled;
-
 
 
     @Value("#{'${tenants}'.split(',')}")
@@ -74,17 +71,23 @@ public class OperationsRouteBuilder extends ErrorHandlerRouteBuilder {
 
     private void removeLastLine(String bpmnFileName) throws IOException {
         String filePath = "upload/" + bpmnFileName;
-        RandomAccessFile f = new RandomAccessFile(filePath, "rw");
-        long length = f.length() - 1;
-        byte b;
-        do {
-            length -= 1;
-            f.seek(length);
-            b = f.readByte();
-        } while (b != 10);
-        f.setLength(length + 1);
-        f.close();
-
+        // try-with-resources: the file used to stay open whenever the scan below threw,
+        // which it did on a file with no newline in it at all. That case is now logged
+        // and the file is left as it is, instead of failing the upload.
+        try (RandomAccessFile f = new RandomAccessFile(filePath, "rw")) {
+            long length = f.length() - 1;
+            byte b;
+            do {
+                length -= 1;
+                if (length < 0) {
+                    logger.warn("no line ending found in {}, leaving it as it is", filePath);
+                    return;
+                }
+                f.seek(length);
+                b = f.readByte();
+            } while (b != 10);
+            f.setLength(length + 1);
+        }
     }
 
     private List<String> formatBpmn(String bpmnFileName) throws IOException {
@@ -120,20 +123,11 @@ public class OperationsRouteBuilder extends ErrorHandlerRouteBuilder {
     }
 
     private void formatBpmnWorker(String filePath, String tenant) throws IOException {
-        File fileToBeModified = new File(filePath);
-        String oldContent = "";
-        BufferedReader reader = new BufferedReader(new FileReader(fileToBeModified));
-        String line = reader.readLine();
-
-        while (line != null) {
-            oldContent = oldContent + line + System.lineSeparator();
-            line = reader.readLine();
-        }
-        String newContent = oldContent.replaceAll("DFSPID", tenant);
-        FileWriter writer = new FileWriter(fileToBeModified);
-        writer.write(newContent);
-        reader.close();
-        writer.close();
+        // was a read loop concatenating into a String, with a reader and a writer closed
+        // only on the happy path, both using the platform default encoding on an XML file
+        Path file = Path.of(filePath);
+        String content = Files.readString(file, StandardCharsets.UTF_8);
+        Files.writeString(file, content.replace("DFSPID", tenant), StandardCharsets.UTF_8);
     }
 
     @Override

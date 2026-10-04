@@ -24,40 +24,29 @@ import org.apache.http.ssl.SSLContexts;
 import org.elasticsearch.client.RestClient;
 import org.elasticsearch.client.RestClientBuilder;
 import org.elasticsearch.client.RestHighLevelClient;
+import org.mifos.ops.zeebe.config.properties.ElasticsearchProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
 @SpringBootApplication
+@ConfigurationPropertiesScan("org.mifos.ops.zeebe.config.properties")
 @Component
 public class ZeebeOpsApplication {
 
     private static final Logger log = LoggerFactory.getLogger(ZeebeOpsApplication.class);
 
-    @Value("${spring.data.elasticsearch.client.reactive.endpoints}")
-    private String contactPoint;
+    private final ElasticsearchProperties elasticsearch;
 
-
-    @Value("${elasticsearch.security.enabled}")
-    private Boolean securityEnabled;
-
-    @Value("${elasticsearch.sslVerification}")
-    private Boolean sslVerify;
-
-    @Value("${elasticsearch.username}")
-    private String username;
-
-    @Value("${elasticsearch.password}")
-    private String password;
-
-    @Value("${elasticsearch.url}")
-    private String elasticUrl;
+    public ZeebeOpsApplication(ElasticsearchProperties elasticsearch) {
+        this.elasticsearch = elasticsearch;
+    }
 
     @Bean
     public ObjectMapper objectMapper() {
@@ -75,10 +64,10 @@ public class ZeebeOpsApplication {
 
         RestClientBuilder builder;
         SSLContext sslContext = null;
-        if (securityEnabled) {
+        if (elasticsearch.security().enabled()) {
             final CredentialsProvider credentialsProvider = new BasicCredentialsProvider();
-            credentialsProvider.setCredentials(AuthScope.ANY, new UsernamePasswordCredentials(username, password));
-            if (sslVerify) {
+            credentialsProvider.setCredentials(AuthScope.ANY, new UsernamePasswordCredentials(elasticsearch.username(), elasticsearch.password()));
+            if (elasticsearch.sslVerification()) {
                 SSLContextBuilder sslBuilder;
                 try {
                     sslBuilder = SSLContexts.custom().loadTrustMaterial(null, (x509Certificates, s) -> true);
@@ -86,7 +75,7 @@ public class ZeebeOpsApplication {
                 } catch (NoSuchAlgorithmException | KeyStoreException | KeyManagementException e) {
                     log.error("Error building SSL context", e);
                 }
-                HttpHost httpHost = urlToHttpHost(elasticUrl);
+                HttpHost httpHost = urlToHttpHost(elasticsearch.url());
                 SSLContext finalSslContext = sslContext;
                 builder = RestClient.builder(httpHost)
                         .setHttpClientConfigCallback(httpClientBuilder -> httpClientBuilder
@@ -94,13 +83,13 @@ public class ZeebeOpsApplication {
                                 .setSSLHostnameVerifier(NoopHostnameVerifier.INSTANCE)
                                 .setDefaultCredentialsProvider(credentialsProvider));
             } else {
-                HttpHost httpHost = urlToHttpHost(elasticUrl);
+                HttpHost httpHost = urlToHttpHost(elasticsearch.url());
                 builder = RestClient.builder(httpHost)
                         .setHttpClientConfigCallback(httpClientBuilder -> httpClientBuilder
                                 .setDefaultCredentialsProvider(credentialsProvider));
             }
         } else {
-            HttpHost httpHost = urlToHttpHost(elasticUrl);
+            HttpHost httpHost = urlToHttpHost(elasticsearch.url());
             builder =
                     RestClient.builder(httpHost).setHttpClientConfigCallback(this::setHttpClientConfigCallback);
         }

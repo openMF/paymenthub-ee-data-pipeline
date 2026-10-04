@@ -6,8 +6,8 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.DisposableBean;
+import hu.dpc.phee.operator.config.properties.DatasourceCommonProperties;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
@@ -23,14 +23,8 @@ import java.util.stream.Stream;
 public class TenantsService implements DisposableBean {
     private Logger logger = LoggerFactory.getLogger(this.getClass());
 
-    @Value("${datasource.common.protocol}")
-    private String jdbcProtocol;
-
-    @Value("${datasource.common.subprotocol}")
-    private String jdbcSubprotocol;
-
-    @Value("${datasource.common.driverclass_name}")
-    private String driverClass;
+    @Autowired
+    private DatasourceCommonProperties datasourceCommonProperties;
 
 
     @Autowired
@@ -97,7 +91,8 @@ public class TenantsService implements DisposableBean {
     public DataSource createNewDataSourceFor(TenantConnectionProperties tenant) {
         HikariConfig config = new HikariConfig();
         int port = Integer.parseInt(tenant.getSchemaServerPort());
-        config.setJdbcUrl(createJdbcUrl(jdbcProtocol, jdbcSubprotocol, tenant.getSchemaServer(), port, tenant.getSchemaName()));
+        config.setJdbcUrl(createJdbcUrl(datasourceCommonProperties.protocol(), datasourceCommonProperties.subprotocol(),
+                tenant.getSchemaServer(), port, tenant.getSchemaName()));
         config.setUsername(tenant.getSchemaUsername());
         config.setPassword(tenant.getSchemaPassword());
         config.setAutoCommit(false);
@@ -105,7 +100,7 @@ public class TenantsService implements DisposableBean {
         config.setValidationTimeout(30000);
         config.setConnectionTestQuery("SELECT 1");
         config.setConnectionTimeout(30000);
-        config.setDriverClassName(driverClass);
+        config.setDriverClassName(datasourceCommonProperties.driverclassName());
         config.setIdleTimeout(600000);
         config.setMaximumPoolSize(20);
         config.setMinimumIdle(5);

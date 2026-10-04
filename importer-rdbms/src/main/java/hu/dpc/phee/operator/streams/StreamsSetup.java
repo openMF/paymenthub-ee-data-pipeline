@@ -25,6 +25,7 @@ import org.apache.kafka.streams.kstream.SessionWindows;
 import org.apache.kafka.streams.kstream.Windowed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import hu.dpc.phee.operator.config.properties.ImporterKafkaProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.util.Pair;
@@ -47,11 +48,10 @@ public class StreamsSetup {
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
     private static final Serde<String> STRING_SERDE = Serdes.String();
 
-    @Value("${importer.kafka.topic}")
-    private String kafkaTopic;
+    @Autowired
+    private ImporterKafkaProperties importerKafkaProperties;
 
-    @Value("${importer.kafka.aggreation-window-seconds}")
-    private int aggregationWindowSeconds;
+
 
     @Autowired
     private StreamsBuilder streamsBuilder;
@@ -89,7 +89,8 @@ public class StreamsSetup {
 
     @PostConstruct
     public void setup() {
-        logger.info("setting up kafka streams on topic `{}`, aggregating every {} seconds", kafkaTopic, aggregationWindowSeconds);
+        logger.info("setting up kafka streams on topic `{}`, aggregating every {} seconds", importerKafkaProperties.topic(),
+                importerKafkaProperties.aggreationWindowSeconds());
         Aggregator<String, String, List<String>> aggregator = (key, value, aggregate) -> {
             aggregate.add(value);
             return aggregate;
@@ -98,9 +99,9 @@ public class StreamsSetup {
                 .flatMap(Collection::stream)
                 .collect(Collectors.toList());
 
-        streamsBuilder.stream(kafkaTopic, Consumed.with(STRING_SERDE, STRING_SERDE))
+        streamsBuilder.stream(importerKafkaProperties.topic(), Consumed.with(STRING_SERDE, STRING_SERDE))
                 .groupByKey()
-                .windowedBy(SessionWindows.ofInactivityGapAndGrace(Duration.ofSeconds(aggregationWindowSeconds), Duration.ZERO))
+                .windowedBy(SessionWindows.ofInactivityGapAndGrace(Duration.ofSeconds(importerKafkaProperties.aggreationWindowSeconds()), Duration.ZERO))
                 .aggregate(ArrayList::new, aggregator, merger, Materialized.with(STRING_SERDE, ListSerde(ArrayList.class, STRING_SERDE)))
                 .toStream()
                 .foreach(this::process);

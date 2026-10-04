@@ -15,6 +15,7 @@ import hu.dpc.phee.operator.util.BatchFormatToTransferMapper;
 import hu.dpc.phee.operator.util.PaymentModeEnum;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import hu.dpc.phee.operator.config.properties.ApplicationProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -48,8 +49,8 @@ public class InflightBatchManager {
     @Autowired
     private CsvFileService csvFileService;
 
-    @Value("${application.bucket-name}")
-    private String bucketName;
+    @Autowired
+    private ApplicationProperties applicationProperties;
 
     private final Map<Long, String> workflowKeyBatchFileNameAssociations = new HashMap<>();
 
@@ -106,7 +107,7 @@ public class InflightBatchManager {
 
 
         filename = strip(filename);
-        String localFilePath = fileTransferService.downloadFile(filename, bucketName);
+        String localFilePath = fileTransferService.downloadFile(filename, applicationProperties.bucketName());
         if (localFilePath == null) {
             logger.error("Null localFilePath, Error updating transfer table for batch with instance key {} and batch filename {}",
                     workflowInstanceKey, filename);
@@ -199,7 +200,7 @@ public class InflightBatchManager {
                 return;
             }
             filename = strip(filename);
-            String localFilePath = fileTransferService.downloadFile(filename, bucketName);
+            String localFilePath = fileTransferService.downloadFile(filename, applicationProperties.bucketName());
             List<Transaction> transactionList = csvFileService.getTransactionList(localFilePath);
             for (Transaction transaction : transactionList) {
                 Transfer transfer = BatchFormatToTransferMapper.mapToTransferEntity(transaction);

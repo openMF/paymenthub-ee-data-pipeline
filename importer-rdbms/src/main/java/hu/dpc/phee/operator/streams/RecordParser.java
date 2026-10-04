@@ -78,6 +78,9 @@ public class RecordParser {
 
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
     @Transactional
     public List<Object> processWorkflowInstance(DocumentContext recordDocument, String bpmn, Long workflowInstanceKey, Long timestamp, String bpmnElementType, String elementId, String flowType, DocumentContext sample) {
         logger.info("Processing workflow instance");
@@ -324,7 +327,6 @@ public class RecordParser {
 
             if (Strings.isNotBlank(transformer.getJsonPath())) {
                 try {
-                    ObjectMapper objectMapper = new ObjectMapper();
                     JsonNode jsonNode = objectMapper.readTree(variableValue);
                     if (jsonNode.isArray()) {
                         // It's a JSON array
@@ -335,10 +337,10 @@ public class RecordParser {
                         // It's a JSON object
                         processJsonObject(jsonNode,transformer,object,fieldName,variableName,variableValue);
                     } else {
-                        System.err.println("Invalid JSON input.");
+                        logger.warn("not a JSON object or array, skipping transformer for field {}: {}", fieldName, variableValue);
                     }
                 } catch (IOException e) {
-                    e.printStackTrace();
+                    logger.error("failed to read variable {} as JSON while setting field {}", variableName, fieldName, e);
                 }
                 return;
             }
@@ -389,7 +391,6 @@ public class RecordParser {
 
     @Transactional
     public void parseSubBatchDetails(String jsonString) throws JsonProcessingException {
-        ObjectMapper objectMapper = new ObjectMapper();
         List<Batch> batches = Arrays.asList(objectMapper.readValue(jsonString, Batch[].class));
         logger.info("Inside parseSubBatchDetails batch size - {}", batches.size());
         for (Batch bt : batches) {
