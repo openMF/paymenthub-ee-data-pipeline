@@ -23,6 +23,7 @@ import org.apache.commons.text.StringEscapeUtils;
 import org.apache.logging.log4j.util.Strings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.BeanWrapper;
 import org.springframework.beans.PropertyAccessorFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -34,6 +35,7 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.xpath.XPathFactory;
 import java.io.IOException;
 import java.io.StringReader;
+import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
@@ -351,7 +353,7 @@ public class RecordParser {
                 String result = xPathFactory.newXPath().compile(transformer.getXpath()).evaluate(document);
                 logger.debug("xpath result: {} for variable {}", result, variableName);
                 if (StringUtils.isNotBlank(result)) {
-                    PropertyAccessorFactory.forBeanPropertyAccess(object).setPropertyValue(fieldName, result);
+                    setField(object, fieldName, result);
                 } else {
                     logger.error("null result when setting field {} from variable {}. Xpath: {}, variable value: {}", fieldName, variableName, transformer.getXpath(), variableValue);
                 }
@@ -359,11 +361,30 @@ public class RecordParser {
             }
 
             logger.debug("setting simple variable value: {} for variable {}", variableValue, variableName);
-            PropertyAccessorFactory.forBeanPropertyAccess(object).setPropertyValue(fieldName, variableValue);
+            setField(object, fieldName, variableValue);
 
         } catch (Exception e) {
             logger.error("failed to apply transformer {} to variable {}", transformer, variableName, e);
         }
+    }
+
+    /**
+     * Sets a field from a Zeebe variable value. Zeebe serialises numbers as decimals ("26.0"), which Spring cannot
+     * convert to a Long or Integer field such as the batch amounts; a decimal that is exactly a whole number is
+     * converted to one. A real fraction is still rejected (with the field named) rather than rounded.
+     */
+    static void setField(Object object, String fieldName, String value) {
+        BeanWrapper wrapper = PropertyAccessorFactory.forBeanPropertyAccess(object);
+        Class<?> type = wrapper.getPropertyType(fieldName);
+        boolean wholeNumberField = type == Long.class || type == long.class || type == Integer.class || type == int.class;
+        if (wholeNumberField && value != null && value.contains(".")) {
+            try {
+                value = new BigDecimal(value.trim()).toBigIntegerExact().toString();
+            } catch (NumberFormatException | ArithmeticException e) {
+                throw new IllegalArgumentException("field " + fieldName + " holds a whole number, cannot store " + value, e);
+            }
+        }
+        wrapper.setPropertyValue(fieldName, value);
     }
 
     private void processJsonObject(JsonNode jsonNode, TransferTransformerConfig.Transformer transformer, Object object, String fieldName, String variableName, String variableValue) {
@@ -381,7 +402,7 @@ public class RecordParser {
             } else {
                 value = result.toString();
             }
-            PropertyAccessorFactory.forBeanPropertyAccess(object).setPropertyValue(fieldName, value);
+            setField(object, fieldName, value);
         }
 
         if (StringUtils.isBlank(value)) {
