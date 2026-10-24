@@ -83,7 +83,7 @@ public class InflightBatchManager {
                 return batch;
             }
         } else {
-            logger.info("Found existing Batch for processInstanceKey: {}", processInstanceKey);
+            logger.debug("Found existing Batch for processInstanceKey: {}", processInstanceKey);
         }
 
         return batchOptional.orElse(null);
@@ -97,7 +97,7 @@ public class InflightBatchManager {
 
     private void  updateTransferTableForBatch(Batch batch, Long workflowInstanceKey, Long completeTimestamp) {
         String filename = getBatchFileName(workflowInstanceKey);
-        logger.info("Filename {}", filename);
+        logger.debug("Filename {}", filename);
         if (filename == null) {
             return;
         }
@@ -195,7 +195,7 @@ public class InflightBatchManager {
     }
 
     public void updateTransferTableWithFailedTransaction(Long workflowInstanceKey, String filename) {
-            logger.info("Filename {}", filename);
+            logger.debug("Filename {}", filename);
             if (filename == null) {
                 return;
             }
@@ -219,7 +219,7 @@ public class InflightBatchManager {
                 transfer.setClientCorrelationId(UUID.randomUUID().toString());
                 transfer.setTransactionId(transaction.getRequestId());
                 logger.debug("Inserting failed txn: {}", transfer);
-                logger.info("Inserting failed txn with note: {}", transaction.getNote());
+                logger.debug("Inserting failed txn with note: {}", transaction.getNote());
                 transfer = updatedExistingRecord(transfer, batchId);
                 transferRepository.save(transfer);
             }
