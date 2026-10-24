@@ -10,6 +10,11 @@ importer:
     topic: "zeebe-export"
     reset: true
     aggreation-window-seconds: 2
+  # How long the importer remembers a batch workflow's file name and batch ID after its last
+  # record, and how many workflows it remembers at most (see InflightBatchProperties).
+  inflight-batch:
+    expire-after-access: 24h
+    maximum-size: 100000
 
 spring:
   profiles:
