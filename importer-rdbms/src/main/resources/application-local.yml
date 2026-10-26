@@ -1,10 +1,4 @@
 datasource:
-  core:
-    host: operationsmysql
-    port: 3306
-    schema: tenants
-    username: mifos
-    password: password
   common:
     protocol: "jdbc"
     subprotocol: mysql
