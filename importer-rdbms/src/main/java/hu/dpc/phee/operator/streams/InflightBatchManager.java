@@ -1,5 +1,8 @@
 package hu.dpc.phee.operator.streams;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Ticker;
 import com.jayway.jsonpath.DocumentContext;
 import hu.dpc.phee.operator.config.TransferTransformerConfig;
 import hu.dpc.phee.operator.entity.batch.Batch;
@@ -16,17 +19,17 @@ import hu.dpc.phee.operator.util.PaymentModeEnum;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import hu.dpc.phee.operator.config.properties.ApplicationProperties;
+import hu.dpc.phee.operator.config.properties.InflightBatchProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -52,11 +55,29 @@ public class InflightBatchManager {
     @Autowired
     private ApplicationProperties applicationProperties;
 
-    private final Map<Long, String> workflowKeyBatchFileNameAssociations = new HashMap<>();
+    // Bounded, so the importer doesn't keep an entry for every batch it has seen since it started.
+    // Entries aren't removed when a workflow completes: other records of the same workflow can still
+    // be processed after the completion record.
+    private final Cache<Long, String> workflowKeyBatchFileNameAssociations;
 
-    private final Map<Long, String> workflowKeyBatchIdAssociations = new HashMap<>();
+    private final Cache<Long, String> workflowKeyBatchIdAssociations;
 
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
+
+    @Autowired
+    public InflightBatchManager(InflightBatchProperties properties) {
+        this(properties, Ticker.systemTicker(), Runnable::run);
+    }
+
+    InflightBatchManager(InflightBatchProperties properties, Ticker ticker, Executor executor) {
+        this.workflowKeyBatchFileNameAssociations = newCache(properties, ticker, executor);
+        this.workflowKeyBatchIdAssociations = newCache(properties, ticker, executor);
+    }
+
+    private static Cache<Long, String> newCache(InflightBatchProperties properties, Ticker ticker, Executor executor) {
+        return Caffeine.newBuilder().expireAfterAccess(properties.expireAfterAccess()).maximumSize(properties.maximumSize())
+                .ticker(ticker).executor(executor).build();
+    }
 
     public Batch retrieveOrCreateBatch(String bpmn, DocumentContext record) {
         Long processInstanceKey = record.read("$.value.processInstanceKey", Long.class);
@@ -226,26 +247,18 @@ public class InflightBatchManager {
         }
 
     public String getBatchFileName(Long workflowKey) {
-        synchronized (workflowKeyBatchFileNameAssociations) {
-            return workflowKeyBatchFileNameAssociations.get(workflowKey);
-        }
+        return workflowKeyBatchFileNameAssociations.getIfPresent(workflowKey);
     }
 
     public void storeBatchId(Long workflowKey, String batchId) {
-        synchronized (workflowKeyBatchFileNameAssociations) {
-            workflowKeyBatchIdAssociations.put(workflowKey, batchId);
-        }
+        workflowKeyBatchIdAssociations.put(workflowKey, batchId);
     }
 
     public String getBatchId(Long workflowKey) {
-        synchronized (workflowKeyBatchFileNameAssociations) {
-            return workflowKeyBatchIdAssociations.get(workflowKey);
-        }
+        return workflowKeyBatchIdAssociations.getIfPresent(workflowKey);
     }
 
     public void storeBatchFileName(Long workflowKey, String filename) {
-        synchronized (workflowKeyBatchFileNameAssociations) {
-            workflowKeyBatchFileNameAssociations.put(workflowKey, filename);
-        }
+        workflowKeyBatchFileNameAssociations.put(workflowKey, filename);
     }
 }

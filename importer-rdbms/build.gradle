@@ -48,6 +48,8 @@ dependencies {
     api 'org.postgresql:postgresql'
     api 'com.zaxxer:HikariCP'
     api 'org.apache.commons:commons-text:1.10.0'
+    // bounds InflightBatchManager's per-workflow maps
+    api 'com.github.ben-manes.caffeine:caffeine'
     // AWS SDK v1 is actually used (AwsStorageConfig). The v1 -> v2 migration is
     // a code rewrite (different packages), out of scope for this surgical PR.
     implementation 'com.amazonaws:aws-java-sdk:1.11.486'
