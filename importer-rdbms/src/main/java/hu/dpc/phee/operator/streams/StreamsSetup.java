@@ -144,23 +144,23 @@ public class StreamsSetup {
             Optional<TransferTransformerConfig.Flow> config = transferTransformerConfig.findFlow(bpmn);
             String flowType = getTypeForFlow(config);
 
-            logger.info("processing key: {}, records: {}", key, records);
+            logger.debug("processing key: {}, records: {}", key, records);
 
             transactionTemplate.executeWithoutResult(status -> {
                 for (String record : records) {
                     try {
                         DocumentContext recordDocument = JsonPathReader.parse(record);
-                        logger.info("from kafka: {}", recordDocument.jsonString());
+                        logger.debug("from kafka: {}", recordDocument.jsonString());
 
                         String valueType = recordDocument.read("$.valueType", String.class);
-                        logger.info("processing {} event", valueType);
+                        logger.debug("processing {} event", valueType);
 
                         Long workflowKey = recordDocument.read("$.value.processDefinitionKey");
                         Long workflowInstanceKey = recordDocument.read("$.value.processInstanceKey");
                         Long timestamp = recordDocument.read("$.timestamp");
                         String bpmnElementType = recordDocument.read("$.value.bpmnElementType");
                         String elementId = recordDocument.read("$.value.elementId");
-                        logger.info("Processing document of type {}", valueType);
+                        logger.debug("Processing document of type {}", valueType);
 
                         List<Object> entities = switch (valueType) {
                             case "DEPLOYMENT", "VARIABLE_DOCUMENT", "WORKFLOW_INSTANCE" -> List.of();
@@ -183,7 +183,7 @@ public class StreamsSetup {
                             default -> throw new IllegalStateException("Unexpected event type: " + valueType);
                         };
                         if (entities.size() != 0) {
-                            logger.info("Saving {} entities", entities.size());
+                            logger.debug("Saving {} entities", entities.size());
                             entities.forEach(entity -> {
                                 if (entity instanceof Variable) {
                                     variableRepository.save((Variable) entity);
