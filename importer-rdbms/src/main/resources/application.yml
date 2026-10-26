@@ -32,12 +32,6 @@ datasource:
     protocol: "jdbc"
     subprotocol: "mysql"
     driverclass_name: "com.mysql.cj.jdbc.Driver"
-  core:
-    port: 3306
-    host: "operationsmysql"
-    schema: "tenants"
-    username: "mifos"
-    password: "password"
 
 server:
   port: 8000
