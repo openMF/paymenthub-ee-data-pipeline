@@ -143,6 +143,10 @@ public class RecordParser {
             } else if ("ELEMENT_COMPLETED".equals(intent)) {
                 inflightBatchManager.checkWorkerIdAndUpdateTransferData(batch, workflowInstanceKey, timestamp);
                 batch.setCompletedAt(new Date(timestamp));
+                if (isFailedEnd(bpmnElementType, intent, elementId)) {
+                    logger.warn("Batch {} ended at failure event {}", batch.getBatchId(), elementId);
+                    batch.setNote(FAILED_BATCH_NOTE + ": " + elementId);
+                }
             }
             constantTransformers.forEach(it -> applyTransformer(batch, null, null, it));
             batchRepository.save(batch);
@@ -160,6 +164,15 @@ public class RecordParser {
             logger.error("No matching flow types for the given request");
         }
         return List.of();
+    }
+
+    /** Batch note for a batch whose flow failed; same text the incident path writes. */
+    static final String FAILED_BATCH_NOTE = "Failed Batch Request";
+
+    /** True for a completing end event whose id contains "Failed", the convention transfers already use. */
+    static boolean isFailedEnd(String bpmnElementType, String intent, String elementId) {
+        return "END_EVENT".equals(bpmnElementType) && "ELEMENT_COMPLETED".equals(intent)
+                && StringUtils.isNotEmpty(elementId) && elementId.contains("Failed");
     }
 
     public void updateRtpTransaction(TransactionRequest transactionRequest, String value){
