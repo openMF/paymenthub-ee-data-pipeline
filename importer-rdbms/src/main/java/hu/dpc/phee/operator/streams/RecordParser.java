@@ -137,12 +137,14 @@ public class RecordParser {
         } else if ("BATCH".equalsIgnoreCase(flowType)) {
             logger.debug("Processing flow of type BATCH");
             Batch batch = inflightBatchManager.retrieveOrCreateBatch(bpmn, sample);
-            if ("ELEMENT_ACTIVATING".equals(intent)) {
+            if (isProcessStart(bpmnElementType, intent)) {
                 batch.setStartedAt(new Date(timestamp));
                 logger.debug("found {} constant transformers for flow start {}", constantTransformers.size(), bpmn);
             } else if ("ELEMENT_COMPLETED".equals(intent)) {
                 inflightBatchManager.checkWorkerIdAndUpdateTransferData(batch, workflowInstanceKey, timestamp);
-                batch.setCompletedAt(new Date(timestamp));
+                if (isProcessEnd(bpmnElementType, intent)) {
+                    batch.setCompletedAt(new Date(timestamp));
+                }
                 if (isFailedEnd(bpmnElementType, intent, elementId)) {
                     logger.warn("Batch {} ended at failure event {}", batch.getBatchId(), elementId);
                     batch.setNote(FAILED_BATCH_NOTE + ": " + elementId);
@@ -173,6 +175,19 @@ public class RecordParser {
     static boolean isFailedEnd(String bpmnElementType, String intent, String elementId) {
         return "END_EVENT".equals(bpmnElementType) && "ELEMENT_COMPLETED".equals(intent)
                 && StringUtils.isNotEmpty(elementId) && elementId.contains("Failed");
+    }
+
+    /**
+     * True when the batch flow's process instance itself starts. Every element of the flow also
+     * emits ELEMENT_ACTIVATING, so the batch start time is taken only from the PROCESS element.
+     */
+    static boolean isProcessStart(String bpmnElementType, String intent) {
+        return "PROCESS".equals(bpmnElementType) && "ELEMENT_ACTIVATING".equals(intent);
+    }
+
+    /** True when the batch flow's process instance completes, not when one of its elements does. */
+    static boolean isProcessEnd(String bpmnElementType, String intent) {
+        return "PROCESS".equals(bpmnElementType) && "ELEMENT_COMPLETED".equals(intent);
     }
 
     public void updateRtpTransaction(TransactionRequest transactionRequest, String value){
