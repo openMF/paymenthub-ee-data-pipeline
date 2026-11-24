@@ -183,7 +183,7 @@ public class OperationsRouteBuilder extends ErrorHandlerRouteBuilder {
          *
          * sample request: {
          *   "key": "initiatorFspId",
-         *   "value": "\"ibank-usa\""
+         *   "value": "\"greenbank\""
          * }
          *
          * sample response: {
@@ -299,7 +299,7 @@ public class OperationsRouteBuilder extends ErrorHandlerRouteBuilder {
          *
          * example response: {
          * "isRtpRequest":"false",
-         * "initiatorFspId":"\"ibank-usa\"",
+         * "initiatorFspId":"\"greenbank\"",
          * "originDate":"1633441154238"
          * }
          */
@@ -451,8 +451,8 @@ public class OperationsRouteBuilder extends ErrorHandlerRouteBuilder {
          *
          * response body: Null
          *
-         * demo url: /channel/workflow/international_remittance_payer_process-ibank-usa
-         * Here [international_remittance_payer_process-ibank-usa] is the value of [bpmnProcessId] path variable
+         * demo url: /channel/workflow/international_remittance_payer_process-greenbank
+         * Here [international_remittance_payer_process-greenbank] is the value of [bpmnProcessId] path variable
          *
          */
         from(String.format("rest:POST:/channel/workflow/{%s}", BPMN_PROCESS_ID_PARAM))
@@ -531,23 +531,23 @@ public class OperationsRouteBuilder extends ErrorHandlerRouteBuilder {
          * Get the process definition key and name
          *
          * sample response body: {
-         *    "bulk_processor-ibank-usa":[
+         *    "bulk_processor-greenbank":[
          *       2251799813685998,
          *       2251799814125425
          *    ],
-         *    "international_remittance_payee_process-ibank-india":[
+         *    "international_remittance_payee_process-bluebank":[
          *       2251799813686276,
          *       2251799814069864
          *    ],
-         *    "international_remittance_payer_process-ibank-usa":[
+         *    "international_remittance_payer_process-greenbank":[
          *       2251799813686414,
          *       2251799814069794
          *    ],
-         *    "international_remittance_payer_process-ibank-india":[
+         *    "international_remittance_payer_process-bluebank":[
          *       2251799813686138,
          *       2251799814070206
          *    ],
-         *    "international_remittance_payee_process-ibank-usa":[
+         *    "international_remittance_payee_process-greenbank":[
          *       2251799813686068,
          *       2251799814070344
          *    ]
