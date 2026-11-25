@@ -209,4 +209,10 @@ tasks.withType(JavaCompile) {
 // (avoids the *.jar glob picking up the plain -plain.jar when `build` runs).
 bootJar {
     archiveFileName = 'app.jar'
+    // importer-es contains, and depends on, code under the Zeebe Community
+    // License 1.0, which must be attached wherever it is distributed (see NOTICE).
+    from(rootProject.projectDir) {
+        include 'LICENSE', 'NOTICE', 'licenses/ZEEBE-COMMUNITY-LICENSE-1.0.txt'
+        into 'META-INF'
+    }
 }

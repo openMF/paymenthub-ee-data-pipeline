@@ -66,6 +66,14 @@ jar {
     // them would make the merged jar unverifiable.
     exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/versions/**/module-info.class', 'module-info.class'
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    // The jar contains code under the Zeebe Community License 1.0, which must be
+    // attached wherever it is distributed (see NOTICE), so it carries the
+    // repository's licence files. The Kafka client's own LICENSE and NOTICE stay
+    // at the jar root.
+    from(rootProject.projectDir) {
+        include 'LICENSE', 'NOTICE', 'licenses/ZEEBE-COMMUNITY-LICENSE-1.0.txt'
+        into 'META-INF'
+    }
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -87,6 +95,11 @@ publishing {
                     license {
                         name = 'Mozilla Public License 2.0'
                         url = 'https://www.mozilla.org/en-US/MPL/2.0/'
+                    }
+                    license {
+                        name = 'Zeebe Community License v1.0'
+                        url = 'https://github.com/openMF/paymenthub-ee-data-pipeline/blob/dev/licenses/ZEEBE-COMMUNITY-LICENSE-1.0.txt'
+                        comments = 'Parts of the exporter; see NOTICE'
                     }
                 }
 

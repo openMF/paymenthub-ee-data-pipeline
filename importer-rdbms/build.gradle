@@ -88,4 +88,10 @@ test {
 // (avoids the *.jar glob picking up the plain -plain.jar when `build` runs).
 bootJar {
     archiveFileName = 'app.jar'
+    // Five files are under the Apache License 2.0, whose text must go with the
+    // distributed jar (see NOTICE).
+    from(rootProject.projectDir) {
+        include 'LICENSE', 'NOTICE', 'licenses/APACHE-2.0.txt'
+        into 'META-INF'
+    }
 }
