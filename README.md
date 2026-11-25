@@ -25,6 +25,11 @@ These four were four separate repositories before (`ph-ee-exporter`, `ph-ee-impo
 
 One Gradle build for the whole repository. Java 21 is required.
 
+The services are built for Java 21. The exporter is compiled with `--release 17` (Java 17
+bytecode) against the Zeebe 8.2.12 exporter API, because it runs inside the Zeebe broker's JVM
+and Mifos Gazelle's broker (`camunda/zeebe:8.2.12`) runs on Java 17. See
+[exporter/README.md](exporter/README.md) before changing either.
+
 ```bash
 ./gradlew build
 ```

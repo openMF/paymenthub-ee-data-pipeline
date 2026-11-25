@@ -5,7 +5,7 @@
  * Licensed under the Zeebe Community License 1.0. You may not use this file
  * except in compliance with the Zeebe Community License 1.0.
  */
-package hu.dpc.rt.kafkastreamer.exporter;
+package org.mifos.phee.kafkastreamer.exporter;
 
 import io.camunda.zeebe.protocol.record.Record;
 import io.camunda.zeebe.protocol.record.RecordType;

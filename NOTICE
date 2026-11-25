@@ -11,8 +11,9 @@ ph-ee-exporter, ph-ee-importer-es and ph-ee-importer-rdbms projects, written by
 DPC Consulting and contributed to the Mifos Initiative
 (https://github.com/openMF/ph-ee-exporter, ph-ee-importer-es,
 ph-ee-importer-rdbms). Their Java packages were originally under hu.dpc.
-importer-rdbms was moved to org.mifos.phee.operator in 2026; the original
-authors keep the copyright in their work.
+In 2026 importer-rdbms moved to org.mifos.phee.operator and the exporter to
+org.mifos.phee.kafkastreamer.exporter; the original authors keep the copyright
+in their work.
 
 Apache License 2.0
 ------------------
@@ -31,10 +32,10 @@ Zeebe Community License 1.0
 These files carry Camunda Services GmbH headers and are licensed under the
 Zeebe Community License 1.0 (licenses/ZEEBE-COMMUNITY-LICENSE-1.0.txt), not
 MPL 2.0. They derive from Camunda's Zeebe Elasticsearch exporter.
-  exporter/src/main/java/hu/dpc/rt/kafkastreamer/exporter/KafkaExporter.java
-  exporter/src/main/java/hu/dpc/rt/kafkastreamer/exporter/KafkaExporterClient.java
-  exporter/src/main/java/hu/dpc/rt/kafkastreamer/exporter/KafkaExporterConfiguration.java
-  exporter/src/main/java/hu/dpc/rt/kafkastreamer/exporter/KafkaExporterMetrics.java
+  exporter/src/main/java/org/mifos/phee/kafkastreamer/exporter/KafkaExporter.java
+  exporter/src/main/java/org/mifos/phee/kafkastreamer/exporter/KafkaExporterClient.java
+  exporter/src/main/java/org/mifos/phee/kafkastreamer/exporter/KafkaExporterConfiguration.java
+  exporter/src/main/java/org/mifos/phee/kafkastreamer/exporter/KafkaExporterMetrics.java
   importer-es/src/main/java/org/mifos/phee/kafkastreamer/importer/ElasticsearchExporterConfiguration.java
   importer-es/src/main/java/org/mifos/phee/kafkastreamer/importer/ElasticsearchTemplateSetup.java
 Also derived from the same exporter, without a header: part of
