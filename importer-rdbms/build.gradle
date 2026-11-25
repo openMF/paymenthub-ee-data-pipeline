@@ -62,7 +62,7 @@ dependencies {
     annotationProcessor 'org.projectlombok:lombok'
 }
 
-group = 'hu.dpc.phee'
+group = 'org.mifos.phee'
 description = 'importer-rdbms'
 java.sourceCompatibility = JavaVersion.VERSION_21
 

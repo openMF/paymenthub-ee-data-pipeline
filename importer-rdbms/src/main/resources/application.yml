@@ -29,7 +29,7 @@ spring:
           session: true
           thread: true
           timestamp: true
-          logger: "hu.dpc.phee.operator.config.EclipselinkLogger"
+          logger: "org.mifos.phee.operator.config.EclipselinkLogger"
     open-in-view: false
 
 datasource:
