@@ -1,8 +1,8 @@
 tenants:
   connections:
-    - name: gorilla
+    - name: greenbank
       schema_server: operationsmysql
-      schema_name: gorilla
+      schema_name: greenbank
       schema_server_port: 3306
       schema_username: mifos
       schema_password: password
@@ -26,9 +26,9 @@ tenants:
       deadlock_max_retries: 0
       deadlock_max_retry_interval: 1
       schema_connection_parameters:
-    - name: rhino
+    - name: redbank
       schema_server: operationsmysql
-      schema_name: rhino
+      schema_name: redbank
       schema_server_port: 3306
       schema_username: mifos
       schema_password: password
@@ -52,9 +52,9 @@ tenants:
       deadlock_max_retries: 0
       deadlock_max_retry_interval: 1
       schema_connection_parameters:
-    - name: lion
+    - name: bluebank
       schema_server: operationsmysql
-      schema_name: lion
+      schema_name: bluebank
       schema_server_port: 3306
       schema_username: mifos
       schema_password: password

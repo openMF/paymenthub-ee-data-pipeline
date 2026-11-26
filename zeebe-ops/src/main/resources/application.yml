@@ -10,7 +10,7 @@ camel:
     json-jackson:
       auto-discover-object-mapper: true
 
-tenants: "ibank-india,ibank-usa"
+tenants: "greenbank,redbank,bluebank"
 
 zeebe:
   client:
