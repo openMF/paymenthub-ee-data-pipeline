@@ -1,0 +1,472 @@
+package org.mifos.phee.operator.streams;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jayway.jsonpath.DocumentContext;
+import com.jayway.jsonpath.JsonPath;
+import org.mifos.phee.operator.config.TransferTransformerConfig;
+import org.mifos.phee.operator.entity.batch.Batch;
+import org.mifos.phee.operator.entity.batch.BatchRepository;
+import org.mifos.phee.operator.entity.outboundmessages.OutboudMessages;
+import org.mifos.phee.operator.entity.outboundmessages.OutboundMessagesRepository;
+import org.mifos.phee.operator.entity.task.Task;
+import org.mifos.phee.operator.entity.transactionrequest.TransactionRequest;
+import org.mifos.phee.operator.entity.transactionrequest.TransactionRequestRepository;
+import org.mifos.phee.operator.entity.transactionrequest.TransactionRequestState;
+import org.mifos.phee.operator.entity.transfer.Transfer;
+import org.mifos.phee.operator.entity.transfer.TransferRepository;
+import org.mifos.phee.operator.entity.transfer.TransferStatus;
+import org.mifos.phee.operator.entity.variable.Variable;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.text.StringEscapeUtils;
+import org.apache.logging.log4j.util.Strings;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.BeanWrapper;
+import org.springframework.beans.PropertyAccessorFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+import org.w3c.dom.Document;
+import org.xml.sax.InputSource;
+
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.xpath.XPathFactory;
+import java.io.IOException;
+import java.io.StringReader;
+import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+import static org.mifos.phee.operator.util.OperatorUtils.strip;
+
+@Component
+public class RecordParser {
+
+    @Autowired
+    private InFlightTransferManager inFlightTransferManager;
+
+    @Autowired
+    private InflightTransactionRequestManager inflightTransactionRequestManager;
+
+    @Autowired
+    private InflightBatchManager inflightBatchManager;
+
+    @Autowired
+    private InflightOutboundMessageManager inflightOutboundMessageManager;
+
+    @Autowired
+    TransferRepository transferRepository;
+
+    @Autowired
+    TransactionRequestRepository transactionRequestRepository;
+
+    @Autowired
+    BatchRepository batchRepository;
+
+    @Autowired
+    OutboundMessagesRepository outboundMessagesRepository;
+
+    @Autowired
+    TransferTransformerConfig transferTransformerConfig;
+
+    private final DocumentBuilderFactory documentBuilderFactory = DocumentBuilderFactory.newInstance();
+
+    private final XPathFactory xPathFactory = XPathFactory.newInstance();
+
+    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Transactional
+    public List<Object> processWorkflowInstance(DocumentContext recordDocument, String bpmn, Long workflowInstanceKey, Long timestamp, String bpmnElementType, String elementId, String flowType, DocumentContext sample) {
+        logger.debug("Processing workflow instance");
+        String recordType = recordDocument.read("$.recordType", String.class);
+        String intent = recordDocument.read("$.intent", String.class);
+        Optional<TransferTransformerConfig.Flow> config = transferTransformerConfig.findFlow(bpmn);
+        logger.debug("Inside processWorkflowInstance recordDocument {}", recordDocument);
+        List<TransferTransformerConfig.Transformer> constantTransformers = transferTransformerConfig.getFlows().stream()
+                .filter(it -> bpmn.equalsIgnoreCase(it.getName()))
+                .flatMap(it -> it.getTransformers().stream())
+                .filter(it -> Strings.isNotBlank(it.getConstant()))
+                .toList();
+
+        if ("TRANSFER".equalsIgnoreCase(flowType)) {
+            logger.debug("Processing flow of type TRANSFER");
+            Transfer transfer = inFlightTransferManager.retrieveOrCreateTransfer(bpmn, sample, "PROCESS_INSTANCE");
+            if ("EVENT".equals(recordType) && "START_EVENT".equals(bpmnElementType) && "ELEMENT_ACTIVATED".equals(intent)) {
+                transfer.setStartedAt(new Date(timestamp));
+                transfer.setDirection(config.get().getDirection());
+                logger.debug("found {} constant transformers for flow start {}", constantTransformers.size(), bpmn);
+            } else if ("EVENT".equals(recordType) && "END_EVENT".equals(bpmnElementType) && "ELEMENT_COMPLETED".equals(intent)) {
+                logger.info("finishing transfer for processInstanceKey: {} at elementId: {}", workflowInstanceKey, elementId);
+                transfer.setCompletedAt(new Date(timestamp));
+                if (StringUtils.isNotEmpty(elementId) && elementId.contains("Failed")) {
+                    transfer.setStatus(TransferStatus.FAILED);
+                } else {
+                    transfer.setStatus(TransferStatus.COMPLETED);
+                }
+            }
+            constantTransformers.forEach(it -> applyTransformer(transfer, null, null, it));
+            transferRepository.save(transfer);
+        } else if ("TRANSACTION-REQUEST".equalsIgnoreCase(flowType)) {
+            logger.debug("Processing flow of type TRANSACTION");
+            TransactionRequest transactionRequest = inflightTransactionRequestManager.retrieveOrCreateTransaction(bpmn, sample);
+            if ("ELEMENT_ACTIVATING".equals(intent)) {
+                transactionRequest.setStartedAt(new Date(timestamp));
+                transactionRequest.setDirection(config.get().getDirection());
+                logger.debug("found {} constant transformers for flow start {}", constantTransformers.size(), bpmn);
+            } else if ("ELEMENT_COMPLETED".equals(intent)) {
+                logger.info("finishing transaction for processInstanceKey: {} at elementId: {}", workflowInstanceKey, elementId);
+                transactionRequest.setCompletedAt(new Date(timestamp));
+                if(!config.get().getName().contains("bill_request")) {
+                    if (StringUtils.isNotEmpty(elementId) && elementId.contains("Failed")) {
+                        transactionRequest.setState(TransactionRequestState.FAILED);
+                    } else {
+                        transactionRequest.setState(TransactionRequestState.ACCEPTED);
+                    }
+                }
+            }
+            constantTransformers.forEach(it -> applyTransformer(transactionRequest, null, null, it));
+            transactionRequestRepository.save(transactionRequest);
+        } else if ("BATCH".equalsIgnoreCase(flowType)) {
+            logger.debug("Processing flow of type BATCH");
+            Batch batch = inflightBatchManager.retrieveOrCreateBatch(bpmn, sample);
+            if (isProcessStart(bpmnElementType, intent)) {
+                batch.setStartedAt(new Date(timestamp));
+                logger.debug("found {} constant transformers for flow start {}", constantTransformers.size(), bpmn);
+            } else if ("ELEMENT_COMPLETED".equals(intent)) {
+                inflightBatchManager.checkWorkerIdAndUpdateTransferData(batch, workflowInstanceKey, timestamp);
+                if (isProcessEnd(bpmnElementType, intent)) {
+                    batch.setCompletedAt(new Date(timestamp));
+                }
+                if (isFailedEnd(bpmnElementType, intent, elementId)) {
+                    logger.warn("Batch {} ended at failure event {}", batch.getBatchId(), elementId);
+                    batch.setNote(FAILED_BATCH_NOTE + ": " + elementId);
+                }
+            }
+            constantTransformers.forEach(it -> applyTransformer(batch, null, null, it));
+            batchRepository.save(batch);
+        } else if ("OUTBOUND_MESSAGES".equalsIgnoreCase(flowType)) {
+            logger.debug("Processing flow of type OUTBOUND MESSAGES");
+            OutboudMessages outboudMessages = inflightOutboundMessageManager.retrieveOrCreateOutboundMessage(bpmn, recordDocument);
+            if ("ELEMENT_ACTIVATING".equals(intent)) {
+                outboudMessages.setSubmittedOnDate(new Date(timestamp));
+            } else if ("ELEMENT_COMPLETED".equals(intent)) {
+                outboudMessages.setDeliveredOnDate(new Date(timestamp));
+            }
+            outboundMessagesRepository.save(outboudMessages);
+            constantTransformers.forEach(it -> applyTransformer(outboudMessages, null, null, it));
+        } else {
+            logger.error("No matching flow types for the given request");
+        }
+        return List.of();
+    }
+
+    /** Batch note for a batch whose flow failed; same text the incident path writes. */
+    static final String FAILED_BATCH_NOTE = "Failed Batch Request";
+
+    /** True for a completing end event whose id contains "Failed", the convention transfers already use. */
+    static boolean isFailedEnd(String bpmnElementType, String intent, String elementId) {
+        return "END_EVENT".equals(bpmnElementType) && "ELEMENT_COMPLETED".equals(intent)
+                && StringUtils.isNotEmpty(elementId) && elementId.contains("Failed");
+    }
+
+    /**
+     * True when the batch flow's process instance itself starts. Every element of the flow also
+     * emits ELEMENT_ACTIVATING, so the batch start time is taken only from the PROCESS element.
+     */
+    static boolean isProcessStart(String bpmnElementType, String intent) {
+        return "PROCESS".equals(bpmnElementType) && "ELEMENT_ACTIVATING".equals(intent);
+    }
+
+    /** True when the batch flow's process instance completes, not when one of its elements does. */
+    static boolean isProcessEnd(String bpmnElementType, String intent) {
+        return "PROCESS".equals(bpmnElementType) && "ELEMENT_COMPLETED".equals(intent);
+    }
+
+    public void updateRtpTransaction(TransactionRequest transactionRequest, String value){
+        if(value.equals("INITIATED")){
+            transactionRequest.setState(TransactionRequestState.INITIATED);
+        } else if(value.equals("IN_PROGRESS")){
+            transactionRequest.setState(TransactionRequestState.IN_PROGRESS);
+        } else if(value.equals("REQUEST_ACCEPTED")){
+            transactionRequest.setState(TransactionRequestState.REQUEST_ACCEPTED);
+        } else if (value.equals("ACCEPTED")){
+            transactionRequest.setState(TransactionRequestState.ACCEPTED);
+        } else if(value.equals("SUCCESS")){
+            transactionRequest.setState(TransactionRequestState.SUCCESS);
+        }
+    }
+
+    public List<Object> processVariable(DocumentContext recordDocument, String bpmn, Long workflowInstanceKey, Long workflowKey, Long timestamp, String flowType, DocumentContext sample)throws JsonProcessingException {
+        logger.debug("Processing variable instance");
+        String variableName = recordDocument.read("$.value.name", String.class);
+        String variableValue = recordDocument.read("$.value.value", String.class);
+        String value = variableValue.startsWith("\"") && variableValue.endsWith("\"") ? StringEscapeUtils.unescapeJson(variableValue.substring(1, variableValue.length() - 1)) : variableValue;
+
+        List<Object> results = List.of(
+                new Variable()
+                        .withWorkflowInstanceKey(workflowInstanceKey)
+                        .withName(variableName)
+                        .withWorkflowKey(workflowKey)
+                        .withTimestamp(timestamp)
+                        .withValue(value));
+
+        if(variableName.equals("subBatchDetails")) {
+            parseSubBatchDetails(variableValue);
+        }
+
+        if (variableName.equals("failedTransactionFile")) {
+            // insert the transaction into transfer table
+            logger.debug("Name {} and value: {}", variableName, value);
+            inflightBatchManager.updateTransferTableWithFailedTransaction(workflowInstanceKey, value);
+        }
+
+        if (variableName.equals("batchId")) {
+            logger.info("store batchid {} in tempDocStore for instance {}", strip(value), workflowInstanceKey);
+            inflightBatchManager.storeBatchId(workflowInstanceKey, value);
+        }
+
+        logger.debug("finding transformers for bpmn: {} and variable: {}", bpmn, variableName);
+        List<TransferTransformerConfig.Transformer> matchingTransformers = transferTransformerConfig.getFlows().stream()
+                .filter(it -> bpmn.equalsIgnoreCase(it.getName()))
+                .flatMap(it -> it.getTransformers().stream())
+                .filter(it -> variableName.equalsIgnoreCase(it.getVariableName()))
+                .toList();
+
+        matchTransformerForFlowType(flowType, bpmn, sample, matchingTransformers, variableName, value, fieldValue(variableValue, value), workflowInstanceKey);
+
+        return results;
+    }
+
+    @Transactional
+    private void matchTransformerForFlowType(String flowType, String bpmn, DocumentContext sample, List<TransferTransformerConfig.Transformer> matchingTransformers, String variableName, String value, String fieldValue, Long workflowInstanceKey) {
+        Optional<TransferTransformerConfig.Flow> config = transferTransformerConfig.findFlow(bpmn);
+        if ("TRANSFER".equalsIgnoreCase(flowType)) {
+            Transfer transfer = inFlightTransferManager.retrieveOrCreateTransfer(bpmn, sample, "VARIABLE");
+            matchingTransformers.forEach(transformer -> applyTransformer(transfer, variableName, fieldValue, transformer));
+            transferRepository.save(transfer);
+        } else if ("TRANSACTION-REQUEST".equalsIgnoreCase(flowType)) {
+            TransactionRequest transactionRequest = inflightTransactionRequestManager.retrieveOrCreateTransaction(bpmn, sample);
+            if(variableName.equals("state")){
+                updateRtpTransaction(transactionRequest, value);
+            }
+            matchingTransformers.forEach(transformer -> applyTransformer(transactionRequest, variableName, fieldValue, transformer));
+            transactionRequestRepository.save(transactionRequest);
+        } else if ("BATCH".equalsIgnoreCase(flowType)) {
+            Batch batch = inflightBatchManager.retrieveOrCreateBatch(bpmn, sample);
+            // Duplicate parent check BEFORE applying transformer to avoid JPA auto-flush writing
+            // the in-memory batchId to DB before the duplicate lookup query runs (which would
+            // cause NonUniqueResultException since both rows would then match the WHERE clause).
+            if (variableName.equals("batchId") && batch.getSubBatchId() == null && batch.getBatchId() == null) {
+                List<Batch> existingParents = batchRepository.findAllByBatchIdAndSubBatchIdIsNull(value);
+                if (!existingParents.isEmpty() && !existingParents.get(0).getId().equals(batch.getId())) {
+                    logger.info("Duplicate parent batch row detected for batchId={}, deleting orphan row id={}, using parent id={}",
+                            value, batch.getId(), existingParents.get(0).getId());
+                    batchRepository.delete(batch);
+                    // storeBatchId so future lookups for this workflowInstanceKey find the existing parent
+                    inflightBatchManager.storeBatchId(workflowInstanceKey, value);
+                    return;
+                }
+            }
+            matchingTransformers.forEach(transformer -> applyTransformer(batch, variableName, fieldValue, transformer));
+            batchRepository.save(batch);
+            if (variableName.equals("filename")) {
+                logger.info("store filename {} in tempDocStore for instance {}", strip(value), workflowInstanceKey);
+                inflightBatchManager.storeBatchFileName(workflowInstanceKey, value);
+            }
+            if (variableName.equals("batchId")) {
+                logger.info("store batchid {} in tempDocStore for instance {}", strip(value), workflowInstanceKey);
+                inflightBatchManager.storeBatchId(workflowInstanceKey, value);
+            }
+        } else if ("OUTBOUND_MESSAGES".equalsIgnoreCase(flowType)) {
+            OutboudMessages outboudMessages = inflightOutboundMessageManager.retrieveOrCreateOutboundMessage(bpmn, sample);
+            matchingTransformers.forEach(transformer -> applyTransformer(outboudMessages, variableName, fieldValue, transformer));
+            outboundMessagesRepository.save(outboudMessages);
+        } else {
+            logger.error("No matching flow types for the given request");
+        }
+    }
+
+    public List<Object> processTask(DocumentContext recordDocument, Long workflowInstanceKey, String valueType, Long workflowKey, Long timestamp) {
+        logger.debug("Processing task instance");
+        return List.of(
+                new Task()
+                        .withWorkflowInstanceKey(workflowInstanceKey)
+                        .withWorkflowKey(workflowKey)
+                        .withTimestamp(timestamp)
+                        .withIntent(recordDocument.read("$.intent", String.class))
+                        .withRecordType(valueType)
+                        .withType(recordDocument.read("$.value.type", String.class))
+                        .withElementId(recordDocument.read("$.value.elementId", String.class))
+        );
+    }
+
+    @Transactional
+    public List<Object> processIncident(Long timestamp, String flowType, String bpmn, DocumentContext sample, Long workflowInstanceKey) {
+        logger.debug("Processing incident instance");
+        if ("TRANSFER".equalsIgnoreCase(flowType)) {
+            Transfer transfer = inFlightTransferManager.retrieveOrCreateTransfer(bpmn, sample, "INCIDENT");
+            //Skipping dummy transfer cases
+            if(transfer.getWorkflowInstanceKey().equals(0L) || transfer.getErrorInformation().equals("404")) {
+            } else {
+                logger.info("failing Transfer {} based on incident event", transfer.getTransactionId());
+                transfer.setStatus(TransferStatus.EXCEPTION);
+                transfer.setCompletedAt(new Date(timestamp));
+                transferRepository.save(transfer);
+            }
+        } else if ("TRANSACTION-REQUEST".equalsIgnoreCase(flowType)) {
+            TransactionRequest transactionRequest = inflightTransactionRequestManager.retrieveOrCreateTransaction(bpmn, sample);
+            logger.warn("failing Transaction {} based on incident event", transactionRequest.getTransactionId());
+            transactionRequest.setState(TransactionRequestState.FAILED);
+            transactionRequest.setCompletedAt(new Date(timestamp));
+            transactionRequestRepository.save(transactionRequest);
+        } else if ("BATCH".equalsIgnoreCase(flowType)) {
+            Batch batch = inflightBatchManager.retrieveOrCreateBatch(bpmn, sample);
+            logger.warn("failing Batch {} based on incident event", batch.getBatchId());
+            batch.setNote("Failed Batch Request");
+            batch.setCompletedAt(new Date(timestamp));
+            batchRepository.save(batch);
+        } else if ("OUTBOUND_MESSAGES".equalsIgnoreCase(flowType)) {
+            OutboudMessages outboudMessages = inflightOutboundMessageManager.retrieveOrCreateOutboundMessage(bpmn, sample);
+            logger.warn("failing Outbound Message Request {} based on incident event", outboudMessages.getInternalId());
+            outboudMessages.setDeliveredOnDate(new Date(timestamp));
+            outboudMessages.setDeliveryErrorMessage("Failed Message Request");
+            outboundMessagesRepository.save(outboudMessages);
+        } else {
+            logger.error("No flow type for the incident event");
+        }
+        return List.of();
+    }
+
+    /**
+     * The value a transformer stores for a variable. Zeebe exports a variable set to null as the JSON literal
+     * {@code null}; stored as it is, that is the four-character string "null" (a GovStack-less batch's
+     * registeringInstitutionId, for example), not SQL NULL. A JSON string "null" arrives quoted and is kept.
+     */
+    static String fieldValue(String rawVariableValue, String value) {
+        return "null".equals(rawVariableValue) ? null : value;
+    }
+
+    void applyTransformer(Object object, String variableName, String variableValue, TransferTransformerConfig.Transformer transformer) {
+        logger.debug("applying transformer for field: {}", transformer.getField());
+        try {
+            String fieldName = transformer.getField();
+            if (Strings.isNotBlank(transformer.getConstant())) {
+                logger.debug("setting constant value: {}", transformer.getConstant());
+                PropertyAccessorFactory.forBeanPropertyAccess(object).setPropertyValue(fieldName, transformer.getConstant());
+                return;
+            }
+
+            if (variableValue == null) {
+                // a null variable: a plain field is cleared; a JSON path or XPath has nothing to read
+                if (Strings.isBlank(transformer.getJsonPath()) && Strings.isBlank(transformer.getXpath())) {
+                    logger.debug("setting field {} to null from null variable {}", fieldName, variableName);
+                    setField(object, fieldName, null);
+                }
+                return;
+            }
+
+            if (Strings.isNotBlank(transformer.getJsonPath())) {
+                try {
+                    JsonNode jsonNode = objectMapper.readTree(variableValue);
+                    if (jsonNode.isArray()) {
+                        // It's a JSON array
+                        for (JsonNode jsonObject : jsonNode) {
+                            processJsonObject(jsonObject,transformer,object,fieldName,variableName,variableValue);
+                        }
+                    } else if (jsonNode.isObject()) {
+                        // It's a JSON object
+                        processJsonObject(jsonNode,transformer,object,fieldName,variableName,variableValue);
+                    } else {
+                        logger.warn("not a JSON object or array, skipping transformer for field {}: {}", fieldName, variableValue);
+                    }
+                } catch (IOException e) {
+                    logger.error("failed to read variable {} as JSON while setting field {}", variableName, fieldName, e);
+                }
+                return;
+            }
+
+            if (Strings.isNotBlank(transformer.getXpath())) {
+                logger.debug("applying xpath for variable {}", variableName);
+                Document document = documentBuilderFactory.newDocumentBuilder().parse(new InputSource(new StringReader(variableValue)));
+                String result = xPathFactory.newXPath().compile(transformer.getXpath()).evaluate(document);
+                logger.debug("xpath result: {} for variable {}", result, variableName);
+                if (StringUtils.isNotBlank(result)) {
+                    setField(object, fieldName, result);
+                } else {
+                    logger.error("null result when setting field {} from variable {}. Xpath: {}, variable value: {}", fieldName, variableName, transformer.getXpath(), variableValue);
+                }
+                return;
+            }
+
+            logger.debug("setting simple variable value: {} for variable {}", variableValue, variableName);
+            setField(object, fieldName, variableValue);
+
+        } catch (Exception e) {
+            logger.error("failed to apply transformer {} to variable {}", transformer, variableName, e);
+        }
+    }
+
+    /**
+     * Sets a field from a Zeebe variable value. Zeebe serialises numbers as decimals ("26.0"), which Spring cannot
+     * convert to a Long or Integer field such as the batch amounts; a decimal that is exactly a whole number is
+     * converted to one. A real fraction is still rejected (with the field named) rather than rounded.
+     */
+    static void setField(Object object, String fieldName, String value) {
+        BeanWrapper wrapper = PropertyAccessorFactory.forBeanPropertyAccess(object);
+        Class<?> type = wrapper.getPropertyType(fieldName);
+        boolean wholeNumberField = type == Long.class || type == long.class || type == Integer.class || type == int.class;
+        if (wholeNumberField && value != null && value.contains(".")) {
+            try {
+                value = new BigDecimal(value.trim()).toBigIntegerExact().toString();
+            } catch (NumberFormatException | ArithmeticException e) {
+                throw new IllegalArgumentException("field " + fieldName + " holds a whole number, cannot store " + value, e);
+            }
+        }
+        wrapper.setPropertyValue(fieldName, value);
+    }
+
+    private void processJsonObject(JsonNode jsonNode, TransferTransformerConfig.Transformer transformer, Object object, String fieldName, String variableName, String variableValue) {
+        DocumentContext document = JsonPath.parse(jsonNode.toString());
+        Object result = document.read(transformer.getJsonPath());
+        logger.debug("Results:{}",result);
+
+        String value = null;
+        if (result != null) {
+            if (result instanceof String) {
+                value = (String) result;
+            }
+            if (result instanceof List) {
+                value = ((List<?>) result).stream().map(Object::toString).collect(Collectors.joining(" "));
+            } else {
+                value = result.toString();
+            }
+            setField(object, fieldName, value);
+        }
+
+        if (StringUtils.isBlank(value)) {
+            logger.error("null result when setting field {} from variable {}. Jsonpath: {}, variable value: {}", fieldName, variableName, transformer.getJsonPath(), variableValue);
+        }
+    }
+
+    @Transactional
+    public void parseSubBatchDetails(String jsonString) throws JsonProcessingException {
+        List<Batch> batches = Arrays.asList(objectMapper.readValue(jsonString, Batch[].class));
+        logger.debug("Inside parseSubBatchDetails batch size - {}", batches.size());
+        for (Batch bt : batches) {
+            Optional<Batch> existingBatchOpt = batchRepository.findBySubBatchId(bt.getSubBatchId());
+
+            existingBatchOpt.orElseGet(() -> {
+                batchRepository.save(bt);
+                return bt; // Return bt as it's saved now.
+            });
+        }
+    }
+}

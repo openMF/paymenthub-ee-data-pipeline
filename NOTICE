@@ -1,0 +1,48 @@
+Payment Hub EE data pipeline
+Copyright The Mifos Initiative and contributors.
+
+This repository is licensed under the Mozilla Public License 2.0 (see LICENSE),
+except where a file's header states otherwise, as listed below.
+
+Original work
+-------------
+The exporter, importer-es and importer-rdbms modules began as the
+ph-ee-exporter, ph-ee-importer-es and ph-ee-importer-rdbms projects, written by
+DPC Consulting and contributed to the Mifos Initiative
+(https://github.com/openMF/ph-ee-exporter, ph-ee-importer-es,
+ph-ee-importer-rdbms). Their Java packages were originally under hu.dpc.
+In 2026 importer-rdbms moved to org.mifos.phee.operator and the exporter to
+org.mifos.phee.kafkastreamer.exporter; the original authors keep the copyright
+in their work.
+
+Apache License 2.0
+------------------
+These importer-rdbms files carry Apache Software Foundation headers and are
+licensed under the Apache License, Version 2.0 (licenses/APACHE-2.0.txt).
+They appear to derive from Apache Fineract. Their package was changed in 2026
+(hu.dpc.phee.operator to org.mifos.phee.operator); nothing else was changed.
+  importer-rdbms/src/main/java/org/mifos/phee/operator/entity/parent/AbstractPersistableCustom.java
+  importer-rdbms/src/main/java/org/mifos/phee/operator/entity/tenant/DataSourcePerTenantService.java
+  importer-rdbms/src/main/java/org/mifos/phee/operator/entity/tenant/RoutingDataSource.java
+  importer-rdbms/src/main/java/org/mifos/phee/operator/entity/tenant/ThreadLocalContextUtil.java
+  importer-rdbms/src/main/java/org/mifos/phee/operator/util/SmsMessageStatusType.java
+
+Zeebe Community License 1.0
+---------------------------
+These files carry Camunda Services GmbH headers and are licensed under the
+Zeebe Community License 1.0 (licenses/ZEEBE-COMMUNITY-LICENSE-1.0.txt), not
+MPL 2.0. They derive from Camunda's Zeebe Elasticsearch exporter.
+  exporter/src/main/java/org/mifos/phee/kafkastreamer/exporter/KafkaExporter.java
+  exporter/src/main/java/org/mifos/phee/kafkastreamer/exporter/KafkaExporterClient.java
+  exporter/src/main/java/org/mifos/phee/kafkastreamer/exporter/KafkaExporterConfiguration.java
+  exporter/src/main/java/org/mifos/phee/kafkastreamer/exporter/KafkaExporterMetrics.java
+  importer-es/src/main/java/org/mifos/phee/kafkastreamer/importer/ElasticsearchExporterConfiguration.java
+  importer-es/src/main/java/org/mifos/phee/kafkastreamer/importer/ElasticsearchTemplateSetup.java
+Also derived from the same exporter, without a header: part of
+importer-es/src/main/java/org/mifos/phee/kafkastreamer/importer/ElasticsearchClient.java
+and the index templates importer-es/src/main/resources/zeebe-record-*.json.
+importer-es also depends on io.zeebe:zeebe-elasticsearch-exporter, which is
+licensed under the Zeebe Community License 1.0.
+
+The exporter jar and the importer-es and importer-rdbms application jars carry
+this NOTICE, the LICENSE and the relevant files from licenses/ in META-INF.

@@ -21,20 +21,28 @@ repositories {
     maven { url = uri('https://artifacts.camunda.com/artifactory/zeebe-io/') }
 }
 
+// The exporter runs inside the Zeebe broker JVM, so the broker image decides
+// its bytecode level and its Zeebe API version, not the rest of Payment Hub.
+// Mifos Gazelle runs camunda/zeebe:8.2.12, which runs on Java 17. Keep these two
+// in step with the broker that is deployed (Zeebe 8.4 runs on Java 21).
+def brokerJavaRelease = 17
+def brokerZeebeVersion = '8.2.12'
+
 java {
-    // The exporter runs inside the Zeebe broker JVM, so its bytecode level is
-    // dictated by the broker image: zeebe 8.4 runs on Java 21 (zeebe 8.2 ran on
-    // Java 17). Keep this in step with the broker version below.
+    // Compiled by the repository's JDK 21, for the broker's Java release.
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
 }
 
 dependencies {
-    // The PH-EE BOM pins Zeebe 8, Kafka and every other shared library version.
-    // Do NOT hardcode managed versions. This module produces a self-contained
-    // jar (leaf node), so use enforcedPlatform().
-    implementation enforcedPlatform("org.mifos:paymenthub-ee-bom:${bomVersion}")
+    // The PH-EE BOM supplies Kafka and every other shared library version. Do NOT
+    // hardcode them. Unlike the other modules, this one uses platform(), not
+    // enforcedPlatform(): the BOM's Zeebe version is the one the other services'
+    // clients use, and the exporter must instead build against the broker's
+    // Zeebe API (brokerZeebeVersion, below).
+    implementation platform("org.mifos:paymenthub-ee-bom:${bomVersion}")
+    compileOnly platform("org.mifos:paymenthub-ee-bom:${bomVersion}")
 
     // Bundled into the fat jar: the broker does not ship a Kafka client.
     // slf4j is excluded on purpose — the broker provides its own binding, and a
@@ -49,8 +57,10 @@ dependencies {
     //  - simpleclient        Prometheus client, used by KafkaExporterMetrics
     //                        (the broker registers its own metrics with it)
     //  - slf4j-api           the logger the broker injects via Context.getLogger()
-    compileOnly 'io.camunda:zeebe-exporter-api'
-    compileOnly 'io.camunda:zeebe-protocol'
+    // These two follow the broker, not the BOM (which pins the Zeebe client
+    // version the other services use): 'strictly' overrides the enforced platform.
+    compileOnly('io.camunda:zeebe-exporter-api') { version { strictly brokerZeebeVersion } }
+    compileOnly('io.camunda:zeebe-protocol') { version { strictly brokerZeebeVersion } }
     compileOnly 'io.prometheus:simpleclient'
     compileOnly 'org.slf4j:slf4j-api'
 }
@@ -66,10 +76,19 @@ jar {
     // them would make the merged jar unverifiable.
     exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA', 'META-INF/versions/**/module-info.class', 'module-info.class'
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    // The jar contains code under the Zeebe Community License 1.0, which must be
+    // attached wherever it is distributed (see NOTICE), so it carries the
+    // repository's licence files. The Kafka client's own LICENSE and NOTICE stay
+    // at the jar root.
+    from(rootProject.projectDir) {
+        include 'LICENSE', 'NOTICE', 'licenses/ZEEBE-COMMUNITY-LICENSE-1.0.txt'
+        into 'META-INF'
+    }
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+    options.release = brokerJavaRelease
 }
 
 publishing {
@@ -87,6 +106,11 @@ publishing {
                     license {
                         name = 'Mozilla Public License 2.0'
                         url = 'https://www.mozilla.org/en-US/MPL/2.0/'
+                    }
+                    license {
+                        name = 'Zeebe Community License v1.0'
+                        url = 'https://github.com/openMF/paymenthub-ee-data-pipeline/blob/dev/licenses/ZEEBE-COMMUNITY-LICENSE-1.0.txt'
+                        comments = 'Parts of the exporter; see NOTICE'
                     }
                 }
 

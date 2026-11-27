@@ -19,15 +19,26 @@ volume, and the broker is told where it is:
 - name: ZEEBE_BROKER_EXPORTERS_KAFKA_JARPATH
   value: "/exporters/ph-ee-kafka-exporter.jar"
 - name: ZEEBE_BROKER_EXPORTERS_KAFKA_CLASSNAME
-  value: "hu.dpc.rt.kafkastreamer.exporter.KafkaExporter"
+  value: "org.mifos.phee.kafkastreamer.exporter.KafkaExporter"
 ```
 
 Two things follow from running inside the broker:
 
-* **The Java version is the broker's, not ours.** A Zeebe 8.4 broker runs on
-  Java 21, so the jar is built for Java 21. An older broker (Zeebe 8.2 runs on
-  Java 17) cannot load it. Keep the toolchain in `build.gradle` and the Zeebe
-  version in the BOM in step with the broker image that is deployed.
+* **The Java version and the Zeebe API version are the broker's, not ours.**
+  Both are set at the top of `build.gradle` and must follow the broker image
+  that is deployed:
+  * `brokerJavaRelease = 17`. The jar is compiled with `--release 17`
+    (`options.release`): the repository's JDK 21 produces Java 17 bytecode
+    (class file version 61), checked against the Java 17 API. Mifos Gazelle's
+    broker, `camunda/zeebe:8.2.12`, runs on Java 17, and a Java 17 JVM refuses
+    Java 21 classes (`UnsupportedClassVersionError`) and the broker would not
+    start. Java 17 bytecode also runs on a Java 21 broker (Zeebe 8.4), so raise
+    this only when no supported broker runs on Java 17 any more.
+  * `brokerZeebeVersion = '8.2.12'`. `zeebe-exporter-api` and `zeebe-protocol`
+    are compiled against the broker's version, not the BOM's (the BOM pins the
+    Zeebe client version the other services use). So this module applies the
+    BOM with `platform()`, not `enforcedPlatform()`, and pins these two with
+    `strictly`.
 * **Only the Kafka client is bundled.** The Zeebe API, the SLF4J logger and the
   Prometheus client are all provided by the broker, so they are `compileOnly`
   here. Shipping a second copy of them would clash with the broker's own.
